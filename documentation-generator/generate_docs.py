@@ -1,18 +1,20 @@
 """
 Documentation Template Generator for Java and Python Plugin Projects.
 
-Given a source code directory and documentation output folder,
+Given a source code path and documentation output folder,
 this script generates template .md and _SDD.md documentation files mirroring
 the source folder structure. Templates follow the existing documentation format.
 
-Supports Java (.java) and Python (.py) source files.
+Supports Java (.java) and Python (.py) source files. The source path may be a
+directory (scanned recursively) or a single source file.
 
 Usage:
-    python generate_docs.py <source_dir> <docs_output_dir>
+    python generate_docs.py <source_path> <docs_output_dir>
 
 Example:
     python generate_docs.py ../src/main/java/org/almond/buildinglore ../Documentation
     python generate_docs.py ../src/main/python/org/almond/buildinglore ../Documentation
+    python generate_docs.py ../src/main/java/org/almond/buildinglore/Foo.java ../Documentation
 """
 
 import ast
@@ -700,14 +702,37 @@ def parse_python_file(file_path: str) -> Optional[PythonModuleDoc]:
     )
 
 
+def _resolve_source_scope(source_path: str) -> tuple:
+    """Return (base_dir, single_file_name) for a source path that may be a file or directory.
+
+    When ``source_path`` is a single file, ``base_dir`` is its parent directory and
+    ``single_file_name`` is its file name. When it is a directory, ``single_file_name`` is None.
+    """
+    if os.path.isfile(source_path):
+        base_dir, filename = os.path.split(source_path)
+        return base_dir, filename
+    return source_path, None
+
+
+def _iter_source_entries(source_path: str):
+    """Yield (root, files) pairs for a source path that may be a file or directory."""
+    base_dir, single_file = _resolve_source_scope(source_path)
+    if single_file:
+        yield base_dir, [single_file]
+    else:
+        for root, _dirs, files in os.walk(base_dir):
+            yield root, files
+
+
 def build_type_doc_map(source_dir: str, docs_output_dir: str) -> dict:
     """Build a mapping of class/module name -> doc path for all Java and Python files."""
     source_dir = os.path.abspath(source_dir)
     docs_output_dir = os.path.abspath(docs_output_dir)
+    base_dir, _ = _resolve_source_scope(source_dir)
     type_map = {}  # name -> absolute path of its .md doc file
 
-    for root, dirs, files in os.walk(source_dir):
-        rel_dir = os.path.relpath(root, source_dir)
+    for root, files in _iter_source_entries(source_dir):
+        rel_dir = os.path.relpath(root, base_dir)
         out_dir = docs_output_dir if rel_dir == "." else os.path.join(docs_output_dir, rel_dir)
 
         for fname in files:
@@ -2369,11 +2394,12 @@ def process_source_directory(
     source_dir: str, docs_output_dir: str, overwrite: bool = False
 ):
     """
-    Walk the source directory and generate documentation templates.
+    Walk the source directory (or process a single source file) and generate documentation templates.
     Supports Java (.java) and Python (.py) source files.
     """
     source_dir = os.path.abspath(source_dir)
     docs_output_dir = os.path.abspath(docs_output_dir)
+    base_dir, _ = _resolve_source_scope(source_dir)
 
     # Build type-to-doc-path mapping for cross-referencing
     type_doc_map = build_type_doc_map(source_dir, docs_output_dir)
@@ -2381,13 +2407,13 @@ def process_source_directory(
     generated_count = 0
     skipped_count = 0
 
-    for root, dirs, files in os.walk(source_dir):
+    for root, files in _iter_source_entries(source_dir):
         source_files = [f for f in files if f.endswith(".java") or f.endswith(".py")]
         if not source_files:
             continue
 
         # Compute relative path from source root
-        rel_dir = os.path.relpath(root, source_dir)
+        rel_dir = os.path.relpath(root, base_dir)
         doc_dir = docs_output_dir if rel_dir == "." else os.path.join(docs_output_dir, rel_dir)
 
         # Create output directory
@@ -2438,7 +2464,10 @@ def main():
     )
     parser.add_argument(
         "source_dir",
-        help="Path to the source code root directory (e.g., src/main/java/org/almond/buildinglore)",
+        help=(
+            "Path to the source code root directory (e.g., src/main/java/org/almond/buildinglore) "
+            "or a single source file"
+        ),
     )
     parser.add_argument(
         "docs_output_dir",
@@ -2453,11 +2482,15 @@ def main():
     args = parser.parse_args()
 
     # Validate paths
-    if not os.path.isdir(args.source_dir):
-        print(f"ERROR: Source directory not found: {args.source_dir}")
+    if not os.path.exists(args.source_dir):
+        print(f"ERROR: Source path not found: {args.source_dir}")
         sys.exit(1)
 
-    print(f"Source directory: {os.path.abspath(args.source_dir)}")
+    if os.path.isfile(args.source_dir) and not args.source_dir.endswith((".java", ".py")):
+        print(f"ERROR: Unsupported source file type: {args.source_dir}")
+        sys.exit(1)
+
+    print(f"Source path: {os.path.abspath(args.source_dir)}")
     print(f"Output directory: {os.path.abspath(args.docs_output_dir)}")
     print(f"Overwrite mode:  {'ON' if args.overwrite else 'OFF'}")
     print()

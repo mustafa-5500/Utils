@@ -1,12 +1,14 @@
 """
 Decomposition Diagram Generator for Java and Python Projects.
 
-Given a source code directory and documentation output folder, this script
+Given a source code path and documentation output folder, this script
 generates a decomposition diagram in PlantUML format for each supported source
 file. The diagrams show function-call flow for each file.
 
+The source path may be a directory (scanned recursively) or a single source file.
+
 Usage:
-    python generate_decomp.py <source_code_directory> <documentation_output_folder> [theme] [verbose]
+    python generate_decomp.py <source_path> <documentation_output_folder> [theme] [verbose]
 
 Theme values:
     light | dark | both | none
@@ -16,6 +18,7 @@ Optional flag:
 
 Example:
     python generate_decomp.py ../src/main/java/org/almond/buildinglore ../Documentation both verbose
+    python generate_decomp.py ../src/main/java/org/almond/buildinglore/Foo.java ../Documentation both
 """
 
 import os
@@ -67,8 +70,9 @@ THEME_OPTIONS = {"light", "dark", "both", "none"}
 def usage() -> None:
     """Print usage information for the script."""
     print(
-        "Usage: python generate_decomp.py <source_code_directory> <documentation_output_folder> [theme] [verbose]"
+        "Usage: python generate_decomp.py <source_path> <documentation_output_folder> [theme] [verbose]"
     )
+    print("<source_path> may be a directory (scanned recursively) or a single source file.")
     print("Theme: light | dark | both | none (default: both)")
     print("Verbose: include all calls, including library/import calls")
 
@@ -838,12 +842,20 @@ def main() -> int:
             usage()
             return 1
 
-    if not source_root.exists() or not source_root.is_dir():
-        print(f"Source directory not found: {source_root}")
+    if not source_root.exists():
+        print(f"Source path not found: {source_root}")
         return 1
 
+    if source_root.is_file():
+        if source_root.suffix.lower() not in SUPPORTED_EXTENSIONS:
+            print(f"Unsupported source file type: {source_root}")
+            return 1
+        source_files = [source_root]
+        source_root = source_root.parent
+    else:
+        source_files = collect_source_files(source_root)
+
     output_root.mkdir(parents=True, exist_ok=True)
-    source_files = collect_source_files(source_root)
 
     if not source_files:
         print(f"No supported source files found in: {source_root}")
